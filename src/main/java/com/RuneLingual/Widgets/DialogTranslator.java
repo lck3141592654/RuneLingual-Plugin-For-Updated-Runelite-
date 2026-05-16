@@ -25,8 +25,6 @@ import static com.RuneLingual.Widgets.WidgetsUtilRLingual.removeBrAndTags;
 
 @Slf4j
 public class DialogTranslator {
-    // Dialog happens in a separate widget than the ChatBox itself
-    // not limited to npc conversations themselves, but also chat actions
     @Inject
     private Client client;
     @Inject
@@ -34,7 +32,6 @@ public class DialogTranslator {
     @Inject
     private RuneLingualConfig config;
 
-    // player widget ids
     @Getter
     private final int playerNameWidgetId = ChatRight.NAME;
     @Getter
@@ -42,7 +39,6 @@ public class DialogTranslator {
     @Getter
     private final int playerContentWidgetId = ChatRight.TEXT;
 
-    // npc widget ids
     @Getter
     private final int npcNameWidgetId = ChatLeft.NAME;
     @Getter
@@ -50,10 +46,10 @@ public class DialogTranslator {
     @Getter
     private final int npcContentWidgetId = ChatLeft.TEXT;
 
-    // dialog option widget ids
     @Getter
-    private final int dialogOptionWidgetId = Chatmenu.OPTIONS; // each and every line of the option dialogue has this id, even the red "select an option" text
+    private final int dialogOptionWidgetId = Chatmenu.OPTIONS;
 
+    private static final String PLAYER_NAME_PLACEHOLDER = "[player name]";
 
     private final Colors defaultTextColor = Colors.black;
     private final Colors continueTextColor = Colors.blue;
@@ -81,6 +77,28 @@ public class DialogTranslator {
         this.transformer = new Transformer(plugin);
     }
 
+    private String replacePlayerNameWithPlaceholder(String text) {
+        if (text == null || text.isEmpty()) {
+            return text;
+        }
+        String playerName = client.getLocalPlayer().getName();
+        if (playerName == null || playerName.isEmpty()) {
+            return text;
+        }
+        return text.replace(playerName, PLAYER_NAME_PLACEHOLDER);
+    }
+
+    private String restorePlayerName(String translatedText) {
+        if (translatedText == null || !translatedText.contains(PLAYER_NAME_PLACEHOLDER)) {
+            return translatedText;
+        }
+        String playerName = client.getLocalPlayer().getName();
+        if (playerName == null) {
+            return translatedText;
+        }
+        return translatedText.replace(PLAYER_NAME_PLACEHOLDER, playerName);
+    }
+
     public void handleDialogs(Widget widget) {
         if(widget.getText().contains("<img=")) {
             return;
@@ -94,29 +112,27 @@ public class DialogTranslator {
 
         int interfaceID = WidgetUtil.componentToInterface(widget.getId());
 
-        // if the widget is the npc name widget, and the config is set to use api translation
         if (npcNameOption.equals(TransformOption.TRANSLATE_API) && widget.getId() == npcNameWidgetId) {
             String npcName = widget.getText();
             widgetsUtilRLingual.setWidgetText_ApiTranslation(widget, npcName, nameAndSelectOptionTextColor);
             return;
         }
-        // if the widget is not npc name nor player name, and the config is set to use api translation
         else if (dialogOption.equals(TransformOption.TRANSLATE_API) && widget.getId() != playerNameWidgetId && widget.getId() != npcNameWidgetId) {
             String dialogText = widget.getText();
             if(dialogText.isEmpty()) {
                 return;
             }
+            String textForTranslation = replacePlayerNameWithPlaceholder(dialogText);
             Colors[] textColor = {defaultTextColor};
             if(widget.getId() == npcContinueWidgetId || widget.getId() == playerContinueWidgetId)
                 textColor[0] = continueTextColor;
             else if(widget.getId() == dialogOptionWidgetId && widget.getText().equals(selectOptionText))
                 textColor[0] = nameAndSelectOptionTextColor;
 
-            widgetsUtilRLingual.setWidgetText_ApiTranslation(widget, dialogText, textColor[0]);
+            widgetsUtilRLingual.setWidgetText_ApiTranslation(widget, textForTranslation, textColor[0]);
             return;
         }
 
-        // is not api translation
         switch (interfaceID) {
             case InterfaceID.DIALOG_NPC:
                 handleNpcDialog(widget);
@@ -130,10 +146,8 @@ public class DialogTranslator {
             default:
                 break;
         }
-        //log.info("Unknown dialog widget: " + widget.getId());
     }
 
-    // is not api translation
     private void handleNpcDialog(Widget widget) {
         if (widget.getId() == npcNameWidgetId) {
             String npcName = widget.getText();
@@ -147,43 +161,48 @@ public class DialogTranslator {
         } else if (widget.getId() == npcContinueWidgetId) {
             translateContinueWidget(widget);
         } else if (widget.getId() == npcContentWidgetId) {
-            String npcContent = widget.getText(); // this can contain tags like <br> and probably color tags
+            String npcContent = widget.getText();
             npcContent = removeBrAndTags(npcContent);
+
+            String npcContentForQuery = replacePlayerNameWithPlaceholder(npcContent);
+
             String npcName = getInteractingNpcName();
             SqlQuery query = new SqlQuery(this.plugin);
-            query.setDialogue(npcContent, npcName, false, defaultTextColor);
-            String translatedText = transformer.transform(npcContent, defaultTextColor, dialogOption, query, false);
+            query.setDialogue(npcContentForQuery, npcName, false, defaultTextColor);
+            String translatedText = transformer.transform(npcContentForQuery, defaultTextColor, dialogOption, query, false);
+
+            translatedText = restorePlayerName(translatedText);
+
             widgetsUtilRLingual.setWidgetText_NiceBr(widget, translatedText);
             widgetsUtilRLingual.changeLineHeight(widget);
         }
     }
 
-    // is not api translation
     private void handlePlayerDialog(Widget widget) {
         if (widget.getId() == playerContinueWidgetId) {
-            //log.info(widget.getText());
             translateContinueWidget(widget);
             return;
         }
         if (widget.getId() == playerContentWidgetId) {
-            String playerContent = widget.getText(); // this can contain tags like <br> and probably color tags
+            String playerContent = widget.getText();
             playerContent = removeBrAndTags(playerContent);
 
+            String playerContentForQuery = replacePlayerNameWithPlaceholder(playerContent);
 
             String npcName = getInteractingNpcName();
-            //log.info("playerContent: " + playerContent + " with npc: " + npcName);
 
             SqlQuery query = new SqlQuery(this.plugin);
-            query.setDialogue(playerContent, npcName, true, defaultTextColor);
-            String translatedText = transformer.transform(playerContent, defaultTextColor, dialogOption, query, false);
+            query.setDialogue(playerContentForQuery, npcName, true, defaultTextColor);
+            String translatedText = transformer.transform(playerContentForQuery, defaultTextColor, dialogOption, query, false);
+
+            translatedText = restorePlayerName(translatedText);
+
             widgetsUtilRLingual.setWidgetText_NiceBr(widget, translatedText);
             widgetsUtilRLingual.changeLineHeight(widget);
         }
-        // player name does not need to be translated
     }
 
     private void handleOptionDialog(Widget widget) {
-        // the red "Select an option" text is not tagged with red color
         String dialogOption = widget.getText();
         if (dialogOption.equals(selectOptionText)) {
             widget.setText(getSelectOptionTranslation());
@@ -194,9 +213,15 @@ public class DialogTranslator {
             return;
         }
         dialogOption = removeBrAndTags(dialogOption);
+
+        String dialogOptionForQuery = replacePlayerNameWithPlaceholder(dialogOption);
+
         SqlQuery query = new SqlQuery(this.plugin);
-        query.setDialogue(dialogOption, getInteractingNpcName(), false, defaultTextColor);
-        String translatedText = transformer.transform(dialogOption, defaultTextColor, this.dialogOption, query, false);
+        query.setDialogue(dialogOptionForQuery, getInteractingNpcName(), false, defaultTextColor);
+        String translatedText = transformer.transform(dialogOptionForQuery, defaultTextColor, this.dialogOption, query, false);
+
+        translatedText = restorePlayerName(translatedText);
+
         widgetsUtilRLingual.setWidgetText_NiceBr(widget, translatedText);
         widgetsUtilRLingual.changeLineHeight(widget);
     }
