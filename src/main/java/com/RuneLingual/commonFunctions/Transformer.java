@@ -262,6 +262,11 @@ public class Transformer {
                 return Colors.surroundWithColorTag(text,colors);
             }
         }
+        // Restore player name before stringToDisplayedString (which may convert it to char images)
+        if (plugin.getClient().getLocalPlayer() != null && plugin.getClient().getLocalPlayer().getName() != null) {
+            String playerName = plugin.getClient().getLocalPlayer().getName();
+            translatedText = translatedText.replace("[player name]", playerName);
+        }
         return stringToDisplayedString(translatedText, colors);
     }
 

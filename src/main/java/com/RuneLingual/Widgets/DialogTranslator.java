@@ -89,14 +89,19 @@ public class DialogTranslator {
     }
 
     private String restorePlayerName(String translatedText) {
-        if (translatedText == null || !translatedText.contains(PLAYER_NAME_PLACEHOLDER)) {
-            return translatedText;
+        if (translatedText == null) {
+            return null;
         }
         String playerName = client.getLocalPlayer().getName();
         if (playerName == null) {
             return translatedText;
         }
-        return translatedText.replace(PLAYER_NAME_PLACEHOLDER, playerName);
+        // Handle plain placeholder and <asis> wrapped placeholder
+        translatedText = translatedText.replace("<asis>" + PLAYER_NAME_PLACEHOLDER + "</asis>", playerName);
+        translatedText = translatedText.replace(PLAYER_NAME_PLACEHOLDER, playerName);
+        // Clean up any lingering <asis> tags
+        translatedText = translatedText.replace("<asis>", "").replace("</asis>", "");
+        return translatedText;
     }
 
     public void handleDialogs(Widget widget) {
