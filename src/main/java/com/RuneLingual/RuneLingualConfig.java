@@ -293,6 +293,17 @@ public interface RuneLingualConfig extends Config {
     }
 
     @ConfigItem(
+            name = "Chat Display Mode",
+            description = "How translated chat messages are displayed. Replace original overwrites the message. Add translator message sends a separate translation below.",
+            position = 8 + offset_section3,
+            keyName = "chatDisplayMode",
+            section = SECTION_CHAT_MESSAGES
+    )
+    default ChatDisplayMode getChatDisplayMode() {
+        return ChatDisplayMode.REPLACE_ORIGINAL;
+    }
+
+    @ConfigItem(
             name = "Me in Public",
             description = "Option for your own messages in Public chat",
             position = 1 + offset_section4,
@@ -464,6 +475,10 @@ public interface RuneLingualConfig extends Config {
     enum chatSelfConfig {
         TRANSFORM,
         LEAVE_AS_IS,
+    }
+    enum ChatDisplayMode {
+        REPLACE_ORIGINAL,
+        ADD_TRANSLATOR_MSG,
     }
 
 }
