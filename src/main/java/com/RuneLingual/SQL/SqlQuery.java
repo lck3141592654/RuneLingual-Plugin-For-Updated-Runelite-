@@ -65,25 +65,113 @@ public class SqlQuery implements Cloneable{
     }
 
     public String[] getMatching(SqlVariables column, boolean searchAlike) {
-        // create query -> execute -> return result
-        String query = getSearchQuery();
-        query = query.replace("*", column.getColumnName());
-        String[][] result = plugin.getSqlActions().executeSearchQuery(query);
-        if(result.length == 0 && searchAlike){
+        // Priority-based fallback chain for finding the best matching translation
+        // P1: english + category + subCategory + source (5-tuple exact match)
+        // P2: english + category + subCategory
+        // P3: english + category
+        // P4: english only, exact match
+        // P4.5: english only, case-insensitive
+        // Fallback: placeholder matching (when searchAlike=true)
+        english = replaceSpecialSpaces(english);
+        String[][] result;
+
+        // P1: Full 5-tuple exact match (english + category + subCategory + source)
+        result = searchWithFields(column, true, true, true, false);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P2: Relax source constraint (english + category + subCategory)
+        result = searchWithFields(column, true, true, false, false);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P3: Relax subCategory constraint (english + category)
+        result = searchWithFields(column, true, false, false, false);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P4: english only, exact match
+        result = searchWithFields(column, false, false, false, false);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P4.5: english only, case-insensitive match
+        result = searchWithFields(column, false, false, false, true);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // Final fallback: placeholder matching (only if searchAlike=true)
+        if (searchAlike) {
             return new String[]{getPlaceholderMatches()};
         }
-        if(result.length == 0){
-            // search again ignoring cases
-            query = getSearchQuery_IgnoreCase();
-            query = query.replace("*", column.getColumnName());
-            result = plugin.getSqlActions().executeSearchQuery(query);
+
+        return new String[0];
+    }
+
+    /**
+     * Builds a SELECT query with the specified column constraints and executes it.
+     * @param column The column to select
+     * @param useCat Whether to include category in WHERE clause
+     * @param useSubCat Whether to include subCategory in WHERE clause
+     * @param useSource Whether to include source in WHERE clause
+     * @param ignoreCase Whether to use case-insensitive comparison on English match
+     * @return 2D result array from the query
+     */
+    private String[][] searchWithFields(SqlVariables column, boolean useCat, boolean useSubCat, boolean useSource, boolean ignoreCase) {
+        String query = buildQueryForColumns(useCat, useSubCat, useSource, ignoreCase);
+        if (query == null) {
+            return new String[0][0];
         }
+        query = query.replace("*", column.getColumnName());
+        return plugin.getSqlActions().executeSearchQuery(query);
+    }
+
+    /**
+     * Constructs a SQL SELECT query with the specified column constraints.
+     * The WHERE clause always includes english, and optionally category, subCategory, and source.
+     * @param useCat Whether to include category in WHERE clause
+     * @param useSubCat Whether to include subCategory in WHERE clause
+     * @param useSource Whether to include source in WHERE clause
+     * @param ignoreCase Whether to use case-insensitive comparison on english
+     * @return A complete SQL query string
+     */
+    private String buildQueryForColumns(boolean useCat, boolean useSubCat, boolean useSource, boolean ignoreCase) {
+        List<String> clauses = new ArrayList<>();
+        if (ignoreCase) {
+            clauses.add("UPPER(" + SqlVariables.columnEnglish.getColumnName() + ") = UPPER('" + english.replace("'", "''") + "')");
+        } else {
+            clauses.add(SqlVariables.columnEnglish.getColumnName() + " = '" + english.replace("'", "''") + "'");
+        }
+        if (useCat && category != null && !category.isEmpty()) {
+            clauses.add(SqlVariables.columnCategory.getColumnName() + " = '" + category + "'");
+        }
+        if (useSubCat && subCategory != null && !subCategory.isEmpty()) {
+            clauses.add(SqlVariables.columnSubCategory.getColumnName() + " = '" + subCategory + "'");
+        }
+        if (useSource && source != null && !source.isEmpty()) {
+            clauses.add(SqlVariables.columnSource.getColumnName() + " = '" + source + "'");
+        }
+        return "SELECT * FROM " + SqlActions.tableName + " WHERE " + String.join(" AND ", clauses);
+    }
+
+    /**
+     * Extracts the first column (translation) from each row of a 2D result array.
+     * @param result The 2D result array from a SQL query
+     * @return A 1D array of the first column values
+     */
+    private String[] extractTranslations(String[][] result) {
         String[] translations = new String[result.length];
-        for (int i = 0; i < result.length; i++){
+        for (int i = 0; i < result.length; i++) {
             translations[i] = result[i][0];
         }
         return translations;
     }
+
 
     public String[] getMatching(SqlVariables[] columns) {
         // create query -> execute -> return result
@@ -175,6 +263,7 @@ public class SqlQuery implements Cloneable{
         return str.replaceAll("([\\[\\](){}*+?^$.|])", "\\\\$1");
     }
 
+    @Deprecated
     public String getSearchQuery() {
         english = replaceSpecialSpaces(english);
 
@@ -204,6 +293,7 @@ public class SqlQuery implements Cloneable{
         return null;
     }
 
+    @Deprecated
     public String getSearchQuery_IgnoreCase() {
         english = replaceSpecialSpaces(english);
 
