@@ -262,11 +262,6 @@ public class Transformer {
                 return Colors.surroundWithColorTag(text,colors);
             }
         }
-        // Restore player name before stringToDisplayedString (which may convert it to char images)
-        if (plugin.getClient().getLocalPlayer() != null && plugin.getClient().getLocalPlayer().getName() != null) {
-            String playerName = plugin.getClient().getLocalPlayer().getName();
-            translatedText = translatedText.replace("[player name]", playerName);
-        }
         return stringToDisplayedString(translatedText, colors);
     }
 
@@ -355,10 +350,24 @@ public class Transformer {
     public String stringToDisplayedString(String translatedText, Colors colors){
         boolean needCharImage = plugin.getConfig().getSelectedLanguage().needsCharImages();
         GeneralFunctions generalFunctions = plugin.getGeneralFunctions();
-
-        if(needCharImage) {// needs char image but just 1 color
-            return generalFunctions.StringToTags(Colors.removeNonImgTags(translatedText), colors);
-        } else { // doesnt need char image and just 1 color
+        String playerName = null;
+        if (plugin.getClient().getLocalPlayer() != null && plugin.getClient().getLocalPlayer().getName() != null) {
+            playerName = plugin.getClient().getLocalPlayer().getName();
+        }
+        if(needCharImage) {
+            String cleanedText = Colors.removeNonImgTags(translatedText);
+            if (playerName != null) {
+                cleanedText = cleanedText.replace("[player name]", "<asis>[player name]</asis>");
+            }
+            String tagged = generalFunctions.StringToTags(cleanedText, colors);
+            if (playerName != null) {
+                tagged = tagged.replace("[player name]", playerName);
+            }
+            return tagged;
+        } else {
+            if (playerName != null) {
+                translatedText = translatedText.replace("[player name]", playerName);
+            }
             return "<col=" + colors.getHex() + ">" + translatedText + "</col>";
         }
     }
