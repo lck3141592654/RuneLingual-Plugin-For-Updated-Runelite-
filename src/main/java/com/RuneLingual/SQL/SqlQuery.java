@@ -64,13 +64,12 @@ public class SqlQuery implements Cloneable{
         }
     }
 
-    public String[] getMatching(SqlVariables column, boolean searchAlike) {
+    public String[] getMatching(SqlVariables column, @Deprecated boolean searchAlike) {
         // Priority-based fallback chain for finding the best matching translation
         // P1: english + category + subCategory + source (5-tuple exact match)
         // P2: english + category + subCategory
         // P3: english + category
-        // P4: english only, exact match
-        // P4.5: english only, case-insensitive
+        // P4: english only, case-insensitive
         // Fallback: placeholder matching (when searchAlike=true)
         english = replaceSpecialSpaces(english);
         String[][] result;
@@ -93,21 +92,10 @@ public class SqlQuery implements Cloneable{
             return extractTranslations(result);
         }
 
-        // P4: english only, exact match
-        result = searchWithFields(column, false, false, false, false);
-        if (result.length > 0) {
-            return extractTranslations(result);
-        }
-
-        // P4.5: english only, case-insensitive match
+        // P4: english only, case-insensitive match
         result = searchWithFields(column, false, false, false, true);
         if (result.length > 0) {
             return extractTranslations(result);
-        }
-
-        // Final fallback: placeholder matching (only if searchAlike=true)
-        if (searchAlike) {
-            return new String[]{getPlaceholderMatches()};
         }
 
         return new String[0];
@@ -185,6 +173,7 @@ public class SqlQuery implements Cloneable{
         return translations;
     }
 
+    @Deprecated
     private String getPlaceholderMatches(){
         /*
         returns translation which includes placeholders at first that matches the english text,
@@ -323,6 +312,7 @@ public class SqlQuery implements Cloneable{
         return null;
     }
 
+    @Deprecated
     public String getPlaceholderSearchQuery(String[] placeholders) {
         // creates query that matches all non-empty fields
         // returns null if no fields are filled
