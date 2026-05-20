@@ -43,8 +43,25 @@ These files include:
 - **Bank Tags**: Add bank tags to every item for searching in the selected language (may not be possible).
 - **Plugin Compatibility**: Ensure compatibility with other useful plugins like the menu entry swapper and ground marker. This may involve creating similar versions within this plugin or making pull requests to those plugins.
 
-## 6. Collecting Widget IDs
-### 6.1 Obtain Widget ID
+## 6. Translation Fallback Chain (P1-P5)
+
+When looking up a translation in the database, the plugin uses a priority-based fallback chain. "P" stands for **Priority** -- each step relaxes the matching criteria further, and only falls through to the next when no match is found:
+```
+P1: english + category + subCategory + source  (most precise)
+P2: english + category + subCategory
+P3: english + category
+P4: english only, case-insensitive
+P5: english only, fuzzy (strips all spaces/punctuation, compares letters+digits only)
+```
+
+### When to set up Widget IDs
+
+The more context (category / subCategory / source) you provide, the more precise P1-P3 can be. This extra precision prevents a translation intended for one UI context from accidentally matching text in another.
+
+However, **P4 and P5 do not need any category information at all**. If you are unsure how to collect Widget IDs (see section 7), you can skip it entirely -- the plugin will still translate text via P4 and P5 with reasonable coverage.
+
+## 7. Collecting Widget IDs
+### 7.1 Obtain Widget ID
 Get the Widget ID of the parent that contains the text you want to translate, by using the Widget Inspector. You need [developer mode](https://github.com/runelite/runelite/wiki/Using-the-client-developer-tools) for this.
 <br> After enabling developer mode,
    - (1) open the widget inspector by clicking on the new cog icon on the right side of the client
@@ -59,7 +76,7 @@ Get the Widget ID of the parent that contains the text you want to translate, by
 - <i>Note: If (3) in the picture has a name instead of codes like the above case, you can use the name instead of the ID, explained below</i>
 <br><img src="Readmes/toDevsImg/parentOfArdy.png" width="500">
    
-### 6.2 Add ID to Script
+### 7.2 Add ID to Script
 Add the ID to [Ids class](src/main/java/com/RuneLingual/commonFunctions/Ids.java) below line 64, like:
 ```java
 private final int widgetIdWorldSwitcherTab = 4521984;
@@ -79,7 +96,7 @@ private final Set<Integer> widgetIdSet = new HashSet<>(Arrays.asList(
 There will be many widgets to go through, so categorizing them will help improve readability and organization.
 <br><i>If any widgets under the parent are dynamic (i.e., item name, player name), refer to the next section</i>
 
-### 6.3. Add to SqlVariables
+### 7.3. Add to SqlVariables
 Add corresponding sql values to [SqlVariables class](src/main/java/com/RuneLingual/Sql/SqlVariables.java), below line 62. 
 Name should be `"sourceValue4" + the name of the source`. <br>For example:
 ```java
@@ -87,7 +104,7 @@ sourceValue4SkillGuideInterface("skillGuide","source"), // for skill guide inter
 ```
 The second value "source" should not be changed, as it is the name of the column in the database.
 
-### 6.4. Add to WidgetCapture
+### 7.4. Add to WidgetCapture
 Go to [WidgetCapture class'](src/main/java/com/RuneLingual/Widgets/WidgetCapture.java) `modifySqlQuery4Widget` function and an `if` statement to in the form of
 ```java
 if(widgetId == ids.getNameOfIdInStep2){
@@ -102,7 +119,7 @@ if(ids.getWidgetIdSetInStep2().contains(widgetId)){
 ```
 
 
-### 6.5 Edit Output Function
+### 7.5 Edit Output Function
 After that, also in the same WidgetCapture class, edit the `ifIsDumpTarget_thenDump` function, change the first if statement to detect the widget you want to capture, like:
 ```java
 if (sqlQuery.getSource() != null && sqlQuery.getSource().equals(SqlVariables.NameInStep3.getValue())){
@@ -110,7 +127,7 @@ if (sqlQuery.getSource() != null && sqlQuery.getSource().equals(SqlVariables.Nam
 ```
 Then change the file name variable `String fileName` to something appropriate, and doesnt exist yet in the `dump` folder.
 You don't have to change anything else.
-### 6.6 Check Output
+### 7.6 Check Output
 Run the plugin and open the interface you want to capture. You should see the text file in the `RuneLingual-Plugin/output/dump` folder.
 <br>The output should look like this:
 ```
@@ -119,16 +136,16 @@ Members: Soulreaper axe (with <Num0> Strength)		interface	generalUI	skillGuide
 Members: Variants of Keris partisan (requires Beneath Cursed Sands)		interface	generalUI	skillGuide
 Members: Osmumten's Fang		interface	generalUI	skillGuide
 ```
-### 6.7 Check with devs
+### 7.7 Check with devs
 If this is your first time, be sure to make a PR to the latest branch so someone can check you are doing thing right.
 
-## 7.1 Dynamic Texts
+## 8.1 Dynamic Texts
 ### There are 2 types of Dynamic texts
 <br><img src="Readmes/toDevsImg/dynamicTexts.png" width="400">
 1. Only dynamic, such as item names, player names, etc.
 2. Partially dynamic, such as "Name: (player name)" in the picture above.
 
-### 7.1.1 Dynamic Only
+### 8.1.1 Dynamic Only
 For widgets with <b><u>DYNAMIC ONLY</u></b> texts, like item name, player name, add the ID to the corresponding set in [Ids class](src/main/java/com/RuneLingual/commonFunctions/Ids.java).
 ```java
 private final Set<Integer> widgetIdPlayerName = Set.of(
@@ -155,7 +172,7 @@ private final Set<Integer> widgetIdQuestName = Set.of(
 );
 ```
 <br>If you find other types of dynamic texts, we could make a new set, talk to the devs on Discord.
-### 7.1.2 Partially Dynamic
+### 8.1.2 Partially Dynamic
 For widgets that are <u><b>PARTIALLY DYNAMIC</b></u>, such as "Name: (player name)", you need to add an object to the PartialTranslationManager in [Ids class](src/main/java/com/RuneLingual/commonFunctions/Ids.java).
 ```java
 partialTranslationManager.addPartialTranslation(
@@ -172,8 +189,8 @@ partialTranslationManager.addPartialTranslation(
 ```
 This will capture the text "Name: (player name)", replace the dynamic part with a placeholder.
 
-## 7.2 Other Specifications
-### 7.2.1 Configure Widget To Fit Text
+## 8.2 Other Specifications
+### 8.2.1 Configure Widget To Fit Text
 - If the widget size needs to change according to the amount of text it contains, such as
 <br><img src="Readmes/toDevsImg/widget2Mod_before.png" width="200">
 <br>add it to [Ids class](src/main/java/com/RuneLingual/commonFunctions/Ids.java)'s initWidget2ModDict:
@@ -203,7 +220,7 @@ This will capture the text "Name: (player name)", replace the dynamic part with 
 <br><br><i> If top is fixed, the top part won't move, and it will expand/shrink at the bottom edge. Same goes for others.</i>
 <br><i> If top and bottom / left and right are both fixed, it will not resize vertically / horizontally.</i>
 <br><i> If both top and bottom / left and right are not fixed, it will try to expand/shrink equally on both sides.</i>
-### 7.2.2 Specifying Widget Size
+### 8.2.2 Specifying Widget Size
 - To make widget size needs to a <b><u>Fixed size</u></b> like 
 <br><img src="Readmes/toDevsImg/SpecifyWidth.png" width="200">(make it as big as possible to fit as much letters)
 <br>add it to [Ids class](src/main/java/com/RuneLingual/commonFunctions/Ids.java)'s widgetId2FixedSize:
@@ -215,7 +232,7 @@ This will capture the text "Name: (player name)", replace the dynamic part with 
     ```
   After adding to the widgetId2FixedSize, it will automatically set the widget size to the specified size.
 
-### 7.2.3 Splitting Texts
+### 8.2.3 Splitting Texts
 - If the text is split by `<br>` tags, and there are repetitive texts, such as the XP hover which looks like:
     ```
     Agility XP:<br>Next level at:<br>Remaining XP:
@@ -232,7 +249,7 @@ This will capture the text "Name: (player name)", replace the dynamic part with 
     ```
     This will split the text at the `<br>` tags and translate the repetitive parts only once.
 
-### 7.2.4 Useful Tags
+### 8.2.4 Useful Tags
 I have implemented some tags to make the translation process easier.<br>The tags are as follows:
   - The <b>asis</b> tag allows you to specify parts that should be displayed as is, without translation nor replaced with char iamges.<br>Usage: ```<asis>text to display as is</asis>```
   - The <b>```<Num#>```</b> tag is a placeholder for numbers and represents a specific number, so it can contain any number.<br> This was implemented to reduce the number of translations that differ only by numbers.<br>This should be automatically be inserted inplace of numbers automatically.

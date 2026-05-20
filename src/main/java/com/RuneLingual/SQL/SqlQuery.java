@@ -70,6 +70,7 @@ public class SqlQuery implements Cloneable{
         // P2: english + category + subCategory
         // P3: english + category
         // P4: english only, case-insensitive
+        // P5: fuzzy match (strip all non-alphanumeric chars, compare case-insensitive)
         // Fallback: placeholder matching (when searchAlike=true)
         english = replaceSpecialSpaces(english);
         String[][] result;
@@ -98,6 +99,12 @@ public class SqlQuery implements Cloneable{
             return extractTranslations(result);
         }
 
+        // P5: fuzzy match - strip spaces/punctuation, compare alphanumeric chars only (case-insensitive)
+        // Handles cases where the database english and actual text differ in spaces or punctuation
+        result = getFuzzyMatch(column);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
         return new String[0];
     }
 
@@ -171,6 +178,61 @@ public class SqlQuery implements Cloneable{
             translations[i] = result[0][0];
         }
         return translations;
+    }
+
+    /**
+     * P5 fuzzy matching: fetch candidate rows from DB, then normalize both sides in Java
+     * by stripping all non-alphanumeric characters and lowercasing.
+     * This catches cases where the only differences are spaces, punctuation, or letter case.
+     */
+    private String[][] getFuzzyMatch(SqlVariables column) {
+        String normalizedEnglish = normalizeForFuzzyMatch(english);
+        if (normalizedEnglish.isEmpty()) {
+            return new String[0][0];
+        }
+
+        // Narrow down with category / subCategory when available (no english WHERE clause)
+        List<String> clauses = new ArrayList<>();
+        if (category != null && !category.isEmpty()) {
+            clauses.add(SqlVariables.columnCategory.getColumnName() + " = '" + category.replace("'", "''") + "'");
+        }
+        if (subCategory != null && !subCategory.isEmpty()) {
+            clauses.add(SqlVariables.columnSubCategory.getColumnName() + " = '" + subCategory.replace("'", "''") + "'");
+        }
+
+        String query;
+        if (clauses.isEmpty()) {
+            query = "SELECT english, " + column.getColumnName() + " FROM " + SqlActions.tableName;
+        } else {
+            query = "SELECT english, " + column.getColumnName() + " FROM " + SqlActions.tableName
+                    + " WHERE " + String.join(" AND ", clauses);
+        }
+
+        String[][] results = plugin.getSqlActions().executeSearchQuery(query);
+        if (results == null || results.length == 0) {
+            return new String[0][0];
+        }
+
+        // Java-side comparison on normalized text
+        List<String[]> matches = new ArrayList<>();
+        for (String[] row : results) {
+            if (row.length >= 2 && row[0] != null) {
+                String dbNormalized = normalizeForFuzzyMatch(row[0]);
+                if (dbNormalized.equals(normalizedEnglish)) {
+                    matches.add(new String[]{row[1]}); // the translation column
+                }
+            }
+        }
+        return matches.toArray(new String[0][0]);
+    }
+
+    /**
+     * Keep only letters (a-z, A-Z) and digits (0-9), lowercase everything.
+     * Used by P5 to compare text ignoring spaces, punctuation, and case differences.
+     */
+    private static String normalizeForFuzzyMatch(String str) {
+        if (str == null) return "";
+        return str.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
     }
 
     @Deprecated
