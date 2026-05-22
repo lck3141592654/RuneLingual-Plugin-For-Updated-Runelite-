@@ -64,26 +64,109 @@ public class SqlQuery implements Cloneable{
         }
     }
 
-    public String[] getMatching(SqlVariables column, boolean searchAlike) {
-        // create query -> execute -> return result
-        String query = getSearchQuery();
+    public String[] getMatching(SqlVariables column, @Deprecated boolean searchAlike) {
+        // Priority-based fallback chain for finding the best matching translation
+        // P1: english + category + subCategory + source (5-tuple exact match)
+        // P2: english + category + subCategory
+        // P3: english + category
+        // P4: english only, case-insensitive
+        // P5: fuzzy match (strip all non-alphanumeric chars, compare case-insensitive)
+        // Fallback: placeholder matching (when searchAlike=true)
+        english = replaceSpecialSpaces(english);
+        String[][] result;
+
+        // P1: Full 5-tuple exact match (english + category + subCategory + source)
+        result = searchWithFields(column, true, true, true, false);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P2: Relax source constraint (english + category + subCategory)
+        result = searchWithFields(column, true, true, false, false);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P3: Relax subCategory constraint (english + category)
+        result = searchWithFields(column, true, false, false, false);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P4: english only, case-insensitive match
+        result = searchWithFields(column, false, false, false, true);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+
+        // P5: fuzzy match - strip spaces/punctuation, compare alphanumeric chars only (case-insensitive)
+        // Handles cases where the database english and actual text differ in spaces or punctuation
+        result = getFuzzyMatch(column);
+        if (result.length > 0) {
+            return extractTranslations(result);
+        }
+        return new String[0];
+    }
+
+    /**
+     * Builds a SELECT query with the specified column constraints and executes it.
+     * @param column The column to select
+     * @param useCat Whether to include category in WHERE clause
+     * @param useSubCat Whether to include subCategory in WHERE clause
+     * @param useSource Whether to include source in WHERE clause
+     * @param ignoreCase Whether to use case-insensitive comparison on English match
+     * @return 2D result array from the query
+     */
+    private String[][] searchWithFields(SqlVariables column, boolean useCat, boolean useSubCat, boolean useSource, boolean ignoreCase) {
+        String query = buildQueryForColumns(useCat, useSubCat, useSource, ignoreCase);
+        if (query == null) {
+            return new String[0][0];
+        }
         query = query.replace("*", column.getColumnName());
-        String[][] result = plugin.getSqlActions().executeSearchQuery(query);
-        if(result.length == 0 && searchAlike){
-            return new String[]{getPlaceholderMatches()};
+        return plugin.getSqlActions().executeSearchQuery(query);
+    }
+
+    /**
+     * Constructs a SQL SELECT query with the specified column constraints.
+     * The WHERE clause always includes english, and optionally category, subCategory, and source.
+     * @param useCat Whether to include category in WHERE clause
+     * @param useSubCat Whether to include subCategory in WHERE clause
+     * @param useSource Whether to include source in WHERE clause
+     * @param ignoreCase Whether to use case-insensitive comparison on english
+     * @return A complete SQL query string
+     */
+    private String buildQueryForColumns(boolean useCat, boolean useSubCat, boolean useSource, boolean ignoreCase) {
+        List<String> clauses = new ArrayList<>();
+        if (ignoreCase) {
+            clauses.add("UPPER(" + SqlVariables.columnEnglish.getColumnName() + ") = UPPER('" + english.replace("'", "''") + "')");
+        } else {
+            clauses.add(SqlVariables.columnEnglish.getColumnName() + " = '" + english.replace("'", "''") + "'");
         }
-        if(result.length == 0){
-            // search again ignoring cases
-            query = getSearchQuery_IgnoreCase();
-            query = query.replace("*", column.getColumnName());
-            result = plugin.getSqlActions().executeSearchQuery(query);
+        if (useCat && category != null && !category.isEmpty()) {
+            clauses.add(SqlVariables.columnCategory.getColumnName() + " = '" + category + "'");
         }
+        if (useSubCat && subCategory != null && !subCategory.isEmpty()) {
+            clauses.add(SqlVariables.columnSubCategory.getColumnName() + " = '" + subCategory + "'");
+        }
+        if (useSource && source != null && !source.isEmpty()) {
+            clauses.add(SqlVariables.columnSource.getColumnName() + " = '" + source + "'");
+        }
+        return "SELECT * FROM " + SqlActions.tableName + " WHERE " + String.join(" AND ", clauses);
+    }
+
+    /**
+     * Extracts the first column (translation) from each row of a 2D result array.
+     * @param result The 2D result array from a SQL query
+     * @return A 1D array of the first column values
+     */
+    private String[] extractTranslations(String[][] result) {
         String[] translations = new String[result.length];
-        for (int i = 0; i < result.length; i++){
+        for (int i = 0; i < result.length; i++) {
             translations[i] = result[i][0];
         }
         return translations;
     }
+
 
     public String[] getMatching(SqlVariables[] columns) {
         // create query -> execute -> return result
@@ -97,6 +180,62 @@ public class SqlQuery implements Cloneable{
         return translations;
     }
 
+    /**
+     * P5 fuzzy matching: fetch candidate rows from DB, then normalize both sides in Java
+     * by stripping all non-alphanumeric characters and lowercasing.
+     * This catches cases where the only differences are spaces, punctuation, or letter case.
+     */
+    private String[][] getFuzzyMatch(SqlVariables column) {
+        String normalizedEnglish = normalizeForFuzzyMatch(english);
+        if (normalizedEnglish.isEmpty()) {
+            return new String[0][0];
+        }
+
+        // Narrow down with category / subCategory when available (no english WHERE clause)
+        List<String> clauses = new ArrayList<>();
+        if (category != null && !category.isEmpty()) {
+            clauses.add(SqlVariables.columnCategory.getColumnName() + " = '" + category.replace("'", "''") + "'");
+        }
+        if (subCategory != null && !subCategory.isEmpty()) {
+            clauses.add(SqlVariables.columnSubCategory.getColumnName() + " = '" + subCategory.replace("'", "''") + "'");
+        }
+
+        String query;
+        if (clauses.isEmpty()) {
+            query = "SELECT english, " + column.getColumnName() + " FROM " + SqlActions.tableName;
+        } else {
+            query = "SELECT english, " + column.getColumnName() + " FROM " + SqlActions.tableName
+                    + " WHERE " + String.join(" AND ", clauses);
+        }
+
+        String[][] results = plugin.getSqlActions().executeSearchQuery(query);
+        if (results == null || results.length == 0) {
+            return new String[0][0];
+        }
+
+        // Java-side comparison on normalized text
+        List<String[]> matches = new ArrayList<>();
+        for (String[] row : results) {
+            if (row.length >= 2 && row[0] != null) {
+                String dbNormalized = normalizeForFuzzyMatch(row[0]);
+                if (dbNormalized.equals(normalizedEnglish)) {
+                    matches.add(new String[]{row[1]}); // the translation column
+                }
+            }
+        }
+        return matches.toArray(new String[0][0]);
+    }
+
+    /**
+     * Keep only letters (a-z, A-Z) and digits (0-9), lowercase everything.
+     * Used by P5 to compare text ignoring spaces, punctuation, and case differences.
+     */
+    private static String normalizeForFuzzyMatch(String str) {
+        if (str == null) return "";
+        return str.replaceAll("[^a-zA-Z0-9]", "").toLowerCase();
+    }
+
+    @Deprecated
     private String getPlaceholderMatches(){
         /*
         returns translation which includes placeholders at first that matches the english text,
@@ -175,6 +314,7 @@ public class SqlQuery implements Cloneable{
         return str.replaceAll("([\\[\\](){}*+?^$.|])", "\\\\$1");
     }
 
+    @Deprecated
     public String getSearchQuery() {
         english = replaceSpecialSpaces(english);
 
@@ -204,6 +344,7 @@ public class SqlQuery implements Cloneable{
         return null;
     }
 
+    @Deprecated
     public String getSearchQuery_IgnoreCase() {
         english = replaceSpecialSpaces(english);
 
@@ -233,6 +374,7 @@ public class SqlQuery implements Cloneable{
         return null;
     }
 
+    @Deprecated
     public String getPlaceholderSearchQuery(String[] placeholders) {
         // creates query that matches all non-empty fields
         // returns null if no fields are filled

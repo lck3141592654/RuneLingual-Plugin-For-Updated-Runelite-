@@ -25,6 +25,7 @@ import org.apache.commons.lang3.tuple.Pair;
 @Slf4j
 public class ChatCapture
 {
+    private static final String TRANSLATOR_SENDER = "RuneLingual";
     /* Captures chat messages from any source
     ignores npc dialog, as they are handled in DialogCapture*/
 
@@ -86,6 +87,9 @@ public class ChatCapture
 
 
     public void handleChatMessage(ChatMessage chatMessage) throws Exception {
+        if (TRANSLATOR_SENDER.equals(chatMessage.getSender())) {
+            return;
+        }
         ChatMessageType type = chatMessage.getType();
         MessageNode messageNode = chatMessage.getMessageNode();
         String message = chatMessage.getMessage();// e.g.<col=6800bf>Some cracks around the cave begin to ooze water.
@@ -185,7 +189,7 @@ public class ChatCapture
                 }
                 return; // if the message is not translated, do not replace it
             }
-        replaceChatMessage(translatedMessage, node);
+        replaceChatMessage(translatedMessage, node, chatMessage);
     }
     
     private void onlineTranslator(String message, MessageNode node, ChatMessage chatMessage)
@@ -205,7 +209,7 @@ public class ChatCapture
         Transformer transformer = new Transformer(plugin);
         Colors textColor = chatColorManager.getMessageColor();
         String textToDisplay = transformer.stringToDisplayedString(translation, textColor);
-        replaceChatMessage(textToDisplay, node);
+        replaceChatMessage(textToDisplay, node, chatMessage);
         addMsgToSidePanel(chatMessage, translation);
     }
 
@@ -214,11 +218,25 @@ public class ChatCapture
         Transformer transformer = new Transformer(plugin);
         Colors textColor = chatColorManager.getMessageColor();
         String textToDisplay = transformer.stringToDisplayedString(newMessage, textColor);
-        replaceChatMessage(textToDisplay, node);
+        replaceChatMessage(textToDisplay, node, chatMessage);
         addMsgToSidePanel(chatMessage, newMessage);
     }
 
-    private void replaceChatMessage(String newMessage, MessageNode node) {
+    private void replaceChatMessage(String newMessage, MessageNode node, ChatMessage chatMessage) {
+        if (plugin.getConfig().getChatDisplayMode() == RuneLingualConfig.ChatDisplayMode.ADD_TRANSLATOR_MSG) {
+            String senderName = Colors.removeAllTags(chatMessage.getName());
+            String formatted = senderName.isEmpty()
+                ? newMessage
+                : senderName + ": " + newMessage;
+            client.addChatMessage(
+                ChatMessageType.GAMEMESSAGE,
+                "",
+                formatted,
+                TRANSLATOR_SENDER
+            );
+            return;
+        }
+
         if(plugin.getConfig().getSelectedLanguage().needsCharImages()) {
             newMessage = insertBr(newMessage, node);// inserts break line so messages are displayed in multiple lines if they are long
         }
@@ -472,7 +490,7 @@ public class ChatCapture
             Colors textColor = chatColorManager.getMessageColor();
             String textToDisplay = transformer.stringToDisplayedString(translation, textColor);
 
-            replaceChatMessage(textToDisplay, node);
+            replaceChatMessage(textToDisplay, node, chatMessage);
             addMsgToSidePanel(chatMessage, translation);
             toRemove.add(pair);
         }
