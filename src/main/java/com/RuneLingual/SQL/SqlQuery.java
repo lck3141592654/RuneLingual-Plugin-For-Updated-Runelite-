@@ -70,7 +70,7 @@ public class SqlQuery implements Cloneable{
         // P2: english + category + subCategory
         // P3: english + category
         // P4: english only, case-insensitive
-        // P5: fuzzy match (strip all non-alphanumeric chars, compare case-insensitive)
+        // P5: fuzzy match in english (strip all non-alphanumeric chars, compare case-insensitive) + category + subCategory
         // Fallback: placeholder matching (when searchAlike=true)
         english = replaceSpecialSpaces(english);
         String[][] result;
@@ -99,7 +99,7 @@ public class SqlQuery implements Cloneable{
             return extractTranslations(result);
         }
 
-        // P5: fuzzy match - strip spaces/punctuation, compare alphanumeric chars only (case-insensitive)
+        // P5: fuzzy match in english (strip all non-alphanumeric chars, compare case-insensitive) + category + subCategory
         // Handles cases where the database english and actual text differ in spaces or punctuation
         result = getFuzzyMatch(column);
         if (result.length > 0) {
@@ -186,40 +186,33 @@ public class SqlQuery implements Cloneable{
      * This catches cases where the only differences are spaces, punctuation, or letter case.
      */
     private String[][] getFuzzyMatch(SqlVariables column) {
+        // Require both category and subCategory (like P1-P2)
+        if (category == null || category.isEmpty() || subCategory == null || subCategory.isEmpty()) {
+            return new String[0][0];
+        }
+
         String normalizedEnglish = normalizeForFuzzyMatch(english);
         if (normalizedEnglish.isEmpty()) {
             return new String[0][0];
         }
 
-        // Narrow down with category / subCategory when available (no english WHERE clause)
-        List<String> clauses = new ArrayList<>();
-        if (category != null && !category.isEmpty()) {
-            clauses.add(SqlVariables.columnCategory.getColumnName() + " = '" + category.replace("'", "''") + "'");
-        }
-        if (subCategory != null && !subCategory.isEmpty()) {
-            clauses.add(SqlVariables.columnSubCategory.getColumnName() + " = '" + subCategory.replace("'", "''") + "'");
-        }
-
-        String query;
-        if (clauses.isEmpty()) {
-            query = "SELECT english, " + column.getColumnName() + " FROM " + SqlActions.tableName;
-        } else {
-            query = "SELECT english, " + column.getColumnName() + " FROM " + SqlActions.tableName
-                    + " WHERE " + String.join(" AND ", clauses);
-        }
+        // Build query with mandatory category + subCategory
+        String query = "SELECT english, " + column.getColumnName() + " FROM " + SqlActions.tableName
+                + " WHERE " + SqlVariables.columnCategory.getColumnName() + " = '" + category.replace("'", "''") + "'"
+                + " AND " + SqlVariables.columnSubCategory.getColumnName() + " = '" + subCategory.replace("'", "''") + "'";
 
         String[][] results = plugin.getSqlActions().executeSearchQuery(query);
         if (results == null || results.length == 0) {
             return new String[0][0];
         }
 
-        // Java-side comparison on normalized text
+        // Java-side fuzzy comparison on normalized text
         List<String[]> matches = new ArrayList<>();
         for (String[] row : results) {
             if (row.length >= 2 && row[0] != null) {
                 String dbNormalized = normalizeForFuzzyMatch(row[0]);
                 if (dbNormalized.equals(normalizedEnglish)) {
-                    matches.add(new String[]{row[1]}); // the translation column
+                    matches.add(new String[]{row[1]});
                 }
             }
         }

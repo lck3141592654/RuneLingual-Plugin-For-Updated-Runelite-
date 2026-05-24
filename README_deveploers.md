@@ -51,7 +51,7 @@ P1: english + category + subCategory + source  (most precise)
 P2: english + category + subCategory
 P3: english + category
 P4: english only, case-insensitive
-P5: english only, fuzzy (strips all spaces/punctuation, compares letters+digits only)
+P5: fuzzy match in english (strip all non-alphanumeric chars, compare case-insensitive) + category + subCategory
 ```
 
 ### When to set up Widget IDs
